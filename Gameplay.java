@@ -1,17 +1,18 @@
 import java.awt.*;
 
 public class Gameplay {
+    private Level level;
+
+    public Gameplay(){
+        level=new Level(1,3000);
+        level.start();
+    }
 
     public void update() {
-        // Tutaj później dodam logikę gry, klientów itd.
+    level.update();
     }
 
     public void render(Graphics g) {
-        g.setColor(Color.DARK_GRAY);
-        g.setFont(new Font("Arial", Font.BOLD, 60));
-        g.drawString("Rozpoczęto poziom 1", 200, 200);
-
-        g.setFont(new Font("Arial", Font.PLAIN, 30));
-        g.drawString("Kliknij ESC aby wyjść do menu", 200, 250);
+        level.render(g);
     }
 }
