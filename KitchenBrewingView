@@ -1,0 +1,135 @@
+import java.awt.*;
+
+public class KitchenBrewingView {
+
+    private final KitchenProcess process;
+    private final Rectangle machineArea;
+
+    // ================= PRZYCISKI =================
+    private final Rectangle btnSingle;
+    private final Rectangle btnDouble;
+
+    // ================= PARZENIE =================
+    private boolean brewing = false;
+    private long brewStart;
+    private static final long BREW_TIME = 3000;
+
+    public KitchenBrewingView(KitchenProcess process, Rectangle machineArea) {
+        this.process = process;
+        this.machineArea = machineArea;
+
+        // Ustawiamy przyciski w górnej części ekspresu
+        // machineArea to zazwyczaj (300, 200, 300, 220)
+        this.btnSingle = new Rectangle(machineArea.x + 40, machineArea.y + 20, 80, 40);
+        this.btnDouble = new Rectangle(machineArea.x + 180, machineArea.y + 20, 80, 40);
+    }
+
+    // =====================================================
+    // INPUT
+    // =====================================================
+    public boolean mousePressed(int mx, int my) {
+
+        // Jeśli już parzymy, ignorujemy kliknięcia
+        if (brewing) return false;
+
+        // Sprawdzamy, czy w ogóle można parzyć (czy jest woda/prąd/kubek - zależnie od logiki procesu)
+        if (!process.canBrew()) return false;
+
+        // Przycisk SINGLE
+        if (btnSingle.contains(mx, my)) {
+            startBrewing(1);
+            return true;
+        }
+
+        // Przycisk DOUBLE
+        if (btnDouble.contains(mx, my)) {
+            startBrewing(2);
+            return true;
+        }
+
+        return false;
+    }
+
+    private void startBrewing(int shots) {
+        brewing = true;
+        brewStart = System.currentTimeMillis();
+        process.brew(shots); // Przekazujemy ilość szotów do procesu
+    }
+
+    // =====================================================
+    // UPDATE
+    // =====================================================
+    public void update() {
+        if (brewing) {
+            if (System.currentTimeMillis() - brewStart >= BREW_TIME) {
+                brewing = false;
+                process.finishBrewing();
+            }
+        }
+    }
+
+    // =====================================================
+    // RENDER
+    // =====================================================
+    public void render(Graphics g) {
+
+        // 1. OBUDOWA EKSPRESU
+        g.setColor(Color.GRAY);
+        g.fillRect(machineArea.x, machineArea.y, machineArea.width, machineArea.height);
+        g.setColor(Color.BLACK);
+        g.drawRect(machineArea.x, machineArea.y, machineArea.width, machineArea.height);
+
+        g.setFont(new Font("Arial", Font.BOLD, 14));
+        g.drawString("Ekspres", machineArea.x + 10, machineArea.y + 80);
+
+        // 2. PRZYCISKI
+        boolean canPress = process.canBrew() && !brewing;
+
+        // Single (Zielony jeśli aktywny)
+        drawButton(g, btnSingle, "Single",
+                canPress ? new Color(50, 200, 50) : Color.DARK_GRAY);
+
+        // Double (Niebieski jeśli aktywny)
+        drawButton(g, btnDouble, "Double",
+                canPress ? new Color(50, 150, 200) : Color.DARK_GRAY);
+
+        // 3. PASEK POSTĘPU (tylko gdy parzymy)
+        if (brewing) {
+            float p = (System.currentTimeMillis() - brewStart) / (float) BREW_TIME;
+            p = Math.min(p, 1f);
+
+            int barHeight = 12;
+            int barWidth = machineArea.width - 40;
+            int bx = machineArea.x + 20;
+            int by = machineArea.y + machineArea.height - 25;
+
+            // Tło paska
+            g.setColor(Color.BLACK);
+            g.drawRect(bx, by, barWidth, barHeight);
+
+            // Wypełnienie
+            g.setColor(Color.ORANGE);
+            g.fillRect(bx + 1, by + 1, (int)((barWidth - 2) * p), barHeight - 1);
+
+            g.setColor(Color.BLACK);
+            g.setFont(new Font("Arial", Font.PLAIN, 10));
+            g.drawString("Parzenie...", bx, by - 5);
+        }
+    }
+
+    // Metoda pomocnicza do rysowania guzików
+    private void drawButton(Graphics g, Rectangle btn, String txt, Color bg) {
+        g.setColor(bg);
+        g.fillRect(btn.x, btn.y, btn.width, btn.height);
+
+        g.setColor(Color.BLACK);
+        g.drawRect(btn.x, btn.y, btn.width, btn.height);
+
+        // Centrowanie tekstu
+        g.setFont(new Font("Arial", Font.BOLD, 12));
+        FontMetrics fm = g.getFontMetrics();
+        int tx = btn.x + (btn.width - fm.stringWidth(txt)) / 2;
+        int ty = btn.y + (btn.height + fm.getAscent()) / 2 - 2;
+        g.drawString(txt, tx, ty);
+    }
+}
