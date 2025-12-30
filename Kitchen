@@ -1,0 +1,242 @@
+import java.awt.*;
+
+public class Kitchen {
+
+    private final Gameplay gameplay;
+
+    // Obiekty logiczne i wizualne kuchni
+    private final KitchenProcess process;
+    private final KitchenView view;
+
+    private Client activeClient;
+    private String order; // Tekst zamówienia
+
+    public Kitchen(Gameplay gameplay) {
+        this.gameplay = gameplay;
+
+        // Inicjalizacja procesu (logiki)
+        this.process = new KitchenProcess();
+
+        // Inicjalizacja widoku - przekazujemy gameplay, aby ItemsView mogło wydawać pieniądze
+        this.view = new KitchenView(process, gameplay);
+    }
+
+    // =====================================================
+    // START ZAMÓWIENIA
+    // =====================================================
+    public void startOrder(String order, Client client) {
+        this.order = order;
+        this.activeClient = client;
+
+        // Resetujemy filiżankę pod nowe zamówienie
+        // (Ale maszyny i mleko w dzbanku zostają w stanie takim, jak je zostawiliśmy)
+        process.prepareNewCup();
+        view.prepareForNewOrder();
+    }
+
+    // =====================================================
+    // UPDATE
+    // =====================================================
+    public void update() {
+        view.update();
+
+        // Sprawdzamy czy gracz kliknął "Wydaj" (Serve)
+        if (process.isServed()) {
+            finishOrder();
+        }
+    }
+
+    // =====================================================
+    // ZAKOŃCZENIE I ROZLICZENIE (PUNKTY + PIENIĄDZE)
+    // =====================================================
+    private void finishOrder() {
+
+        int points = 0;
+        double earnings = 0.0; // Zarobek w PLN z tego zamówienia
+
+        String clientOrder = activeClient.getOrderName(); // np. "Latte"
+        KitchenProcess.BrewType actualDrink = process.getCurrentDrink();
+
+        System.out.println("--- RACHUNEK ---");
+        System.out.println("Klient: " + clientOrder + " | Dostał: " + actualDrink);
+
+        boolean correctDrink = false;
+        double basePrice = 0.0;
+
+        // 1. USTALENIE CENY BAZOWEJ I SPRAWDZENIE TYPU NAPOJU
+        if (clientOrder.equalsIgnoreCase("Espresso")) {
+            basePrice = 10.0;
+            if (actualDrink == KitchenProcess.BrewType.ESPRESSO) {
+                correctDrink = true;
+                points += 15;
+            } else if (actualDrink == KitchenProcess.BrewType.DOUBLE_ESPRESSO) {
+                // Klient dostał więcej niż chciał - uznajemy, ale cena ta sama
+                correctDrink = true;
+                points += 15;
+            }
+        }
+        else if (clientOrder.equalsIgnoreCase("Double Espresso")) {
+            basePrice = 14.0;
+            if (actualDrink == KitchenProcess.BrewType.DOUBLE_ESPRESSO) {
+                correctDrink = true;
+                points += 25;
+            } else if (actualDrink == KitchenProcess.BrewType.ESPRESSO) {
+                // Za mało kawy - klient płaci tylko za single i jest niezadowolony
+                basePrice = 10.0;
+                points -= 5;
+                System.out.println("Za mała kawa!");
+            }
+        }
+        else if (clientOrder.equalsIgnoreCase("Americano")) {
+            basePrice = 12.0;
+            if (actualDrink == KitchenProcess.BrewType.AMERICANO) {
+                correctDrink = true;
+                points += 20;
+            }
+        }
+        else if (clientOrder.equalsIgnoreCase("Latte") || clientOrder.equalsIgnoreCase("Cappuccino")) {
+            basePrice = 16.0;
+            if (actualDrink == KitchenProcess.BrewType.LATTE) {
+                correctDrink = true;
+                points += 20;
+            }
+        }
+
+        // 2. WERYFIKACJA JAKOŚCI I NALICZANIE NAPIWKU
+        if (!correctDrink) {
+            points -= 15;
+            earnings = 0.0; // Klient nie płaci za zły napój (np. chciał Kawę dostał Wrzątek)
+            System.out.println("ZŁY NAPÓJ - Brak zapłaty!");
+        }
+        else {
+            earnings = basePrice;
+
+            // Flagi perfekcyjności
+            boolean grindPerfect = (process.getCupGrindResult() == KitchenProcess.GrindResult.PERFECT);
+            boolean milkPerfect = true; // Dla czarnych kaw domyślnie OK
+            boolean milkTypeCorrect = true;
+
+            // --- Ocena Mielenia ---
+            if (grindPerfect) {
+                points += 5;
+            } else if (process.getCupGrindResult() != null) {
+                points -= 5;
+            }
+
+            // --- Ocena Mleka (tylko dla Latte) ---
+            if (actualDrink == KitchenProcess.BrewType.LATTE) {
+
+                // Temperatura / Spienienie
+                KitchenProcess.MilkState mState = process.getCupMilkState();
+                if (mState == KitchenProcess.MilkState.PERFECT) {
+                    points += 5;
+                    milkPerfect = true;
+                } else {
+                    milkPerfect = false;
+                    if (mState == KitchenProcess.MilkState.BURNT) {
+                        points -= 10;
+                        earnings *= 0.5; // 50% zniżki za spalone mleko
+                        System.out.println("Spalone mleko! Rabat 50%.");
+                    } else {
+                        points -= 3; // Za zimne/za ciepłe
+                    }
+                }
+
+                // Typ mleka (Alergie!)
+                KitchenProcess.MilkType wanted = activeClient.getMilkPreference();
+                KitchenProcess.MilkType given = process.getCupMilkType();
+
+                if (wanted != null) {
+                    if (wanted == given) {
+                        points += 5;
+                        milkTypeCorrect = true;
+                    } else {
+                        points -= 20; // Duża kara punktowa
+                        earnings = 0.0; // Klient odmawia zapłaty (ryzyko zdrowotne)
+                        milkTypeCorrect = false;
+                        System.out.println("ZŁE MLEKO! Klient nie płaci.");
+                    }
+                }
+            }
+
+            // 3. NAPIWEK (TIP)
+            // Warunek: Wszystko musi być perfekcyjne (i zgodne zamówienie)
+            if (grindPerfect && milkPerfect && milkTypeCorrect && earnings > 0) {
+                double tip = basePrice * 0.20; // 20% napiwku
+                earnings += tip;
+                points += 10; // Extra punkty prestiżu
+                System.out.println("PERFEKCYJNA KAWA! Napiwek: " + String.format("%.2f PLN", tip));
+            }
+        }
+
+        // Finalizacja
+        System.out.println("Zarobek całkowity: " + String.format("%.2f PLN", earnings));
+
+        activeClient.acceptOrder();
+
+        // Przekazujemy punkty i zarobek do Gameplay
+        gameplay.clientServed(activeClient, points, earnings);
+
+        // Wracamy do sali
+        Game.gameState = Game.State.GAME;
+    }
+
+    // =====================================================
+    // INPUT (Delegacja do View)
+    // =====================================================
+    public void mouseMoved(int mx, int my) {
+        view.mouseMoved(mx, my);
+    }
+
+    public void mouseClicked(int mx, int my) {
+        view.mousePressed(mx, my);
+    }
+
+    public void mouseReleased(int mx, int my) {
+        view.mouseReleased(mx, my);
+    }
+
+    // =====================================================
+    // RENDER
+    // =====================================================
+    public void render(Graphics g, int w, int h) {
+        view.render(g, w, h);
+
+        // Górny pasek UI
+        g.setColor(new Color(240, 240, 240, 200));
+        g.fillRect(0, 0, w, 80);
+        g.setColor(Color.BLACK);
+        g.drawLine(0, 80, w, 80);
+
+        // Napisy
+        g.setFont(new Font("Arial", Font.BOLD, 24));
+        g.drawString("KUCHNIA", 40, 50);
+
+        g.setFont(new Font("Arial", Font.PLAIN, 18));
+        g.drawString("Zamówienie: " + order, w - 350, 35);
+
+        // Wyświetlamy stan konta w kuchni, żeby gracz wiedział czy stać go na mleko/kawę
+        g.setColor(new Color(30, 100, 30));
+        g.drawString(String.format("Kasa: %.2f PLN", gameplay.getMoney()), w - 550, 35);
+
+        // Debug zawartości kubka dla gracza
+        KitchenProcess.BrewType current = process.getCurrentDrink();
+        String currentName = switch (current) {
+            case EMPTY -> "Pusty kubek";
+            case HOT_WATER -> "Gorąca woda";
+            case ESPRESSO -> "Espresso";
+            case DOUBLE_ESPRESSO -> "Double Espresso";
+            case AMERICANO -> "Americano";
+            case LATTE -> "Kawa z mlekiem";
+            case DIRTY_WATER -> "Pomyje (Wylej!)";
+        };
+
+        if (current == KitchenProcess.BrewType.LATTE && process.getCupMilkType() != null) {
+            currentName += " (" + process.getCupMilkType().label + ")";
+        }
+
+        g.setFont(new Font("Arial", Font.BOLD, 16));
+        g.setColor(new Color(60, 60, 100));
+        g.drawString("W kubku: " + currentName, w - 350, 65);
+    }
+}
