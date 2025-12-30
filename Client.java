@@ -1,110 +1,101 @@
 import java.awt.*;
-import java.awt.image.BufferedImage;
-import javax.imageio.ImageIO;
-import java.io.File;
 
 public class Client {
 
-    private String name;
-    private String order;
-    private boolean showOrder;
-    private boolean processed;
+    private final String name;
+    private final String orderName; // np. "Latte"
 
+    // NOWE: Preferowane mleko (null, jeśli to czarna kawa)
+    private final KitchenProcess.MilkType milkPreference;
+
+    private boolean processed = false;
     private int x, y;
-    private int width = 120;
-    private int height = 150;
+    private final int width = 120;
+    private final int height = 150;
+    private int patience;
+    private final int maxPatience;
 
-    private Rectangle acceptButton;
-    private Rectangle rejectButton;
-
-    private BufferedImage image; // grafika klienta
-
-    public Client(String name, String order, int x, int y) {
+    public Client(String name, String orderName, KitchenProcess.MilkType milkPreference, int x, int y) {
         this.name = name;
-        this.order = order;
-        this.showOrder = false;
-        this.processed = false;
-
+        this.orderName = orderName;
+        this.milkPreference = milkPreference; // Może być null
         this.x = x;
         this.y = y;
-
-        // przyciski rysowane pod zamówieniem (po prawej stronie klienta)
-        int orderX = x + width + 20;
-        int orderY = y + 20; // tekst zamówienia
-        acceptButton = new Rectangle(orderX, orderY + 40, 100, 30);
-        rejectButton = new Rectangle(orderX, orderY + 80, 100, 30);
-
-        // wczytanie grafiki klienta
-        try {
-            image = ImageIO.read(new File("resources/Klient.jpg"));
-        } catch (Exception e) {
-            System.out.println("Nie udało się wczytać grafiki klienta!");
-            image = null;
-        }
+        this.maxPatience = 600;
+        this.patience = maxPatience;
     }
 
-    public void update() {}
+    // =====================================================
+    // GETTERY
+    // =====================================================
+    public String getOrderName() {
+        return orderName;
+    }
 
+    public KitchenProcess.MilkType getMilkPreference() {
+        return milkPreference;
+    }
+
+    // Metoda pomocnicza do wyświetlania pełnego zamówienia
+    public String getFullOrderText() {
+        if (milkPreference == null) return orderName;
+        // np. "Latte (Sojowe)"
+        return orderName + " (" + milkPreference.label + ")";
+    }
+
+    // =====================================================
+    // POZYCJA & LOGIKA (Bez zmian)
+    // =====================================================
+    public void setPosition(int x, int y) { this.x = x; this.y = y; }
+    public void update() { if (!processed && patience > 0) patience--; }
+    public boolean isOutOfPatience() { return patience <= 0; }
+    public boolean isProcessed() { return processed; }
+    public void acceptOrder() { processed = true; }
+    public boolean contains(int mx, int my) { return mx >= x && mx <= x + width && my >= y && my <= y + height; }
+
+    // =====================================================
+    // RENDER (Drobna zmiana w wyświetlaniu)
+    // =====================================================
     public void render(Graphics g) {
         if (processed) return;
 
-        // rysowanie grafiki klienta
-        if (image != null) {
-            g.drawImage(image, x, y, width, height, null);
-        } else {
-            g.setColor(new Color(200, 170, 150));
-            g.fillRect(x, y, width, height);
-        }
-
-        // imię klienta nad obrazkiem
+        // Ciało
+        g.setColor(new Color(200, 170, 150));
+        g.fillRect(x, y, width, height);
         g.setColor(Color.BLACK);
+        g.drawRect(x, y, width, height);
+
+        // Info
+        int infoX = x + width + 15;
+        int infoY = y;
+
         g.setFont(new Font("Arial", Font.BOLD, 18));
-        g.drawString(name, x + 10, y + 20);
+        g.drawString(name, infoX, infoY + 20);
 
-        // jeśli pokazujemy zamówienie
-        if (showOrder) {
-            int textX = x + width + 20; // obok klienta
-            int textY = y + 20;
+        g.setFont(new Font("Arial", Font.PLAIN, 16));
 
-            g.setFont(new Font("Arial", Font.PLAIN, 16));
-            g.setColor(Color.BLACK);
-            g.drawString("Zamówienie:", textX, textY);
-            g.drawString(order, textX, textY + 20);
+        // Wyświetlamy zamówienie z rodzajem mleka
+        String txt = getFullOrderText();
+        g.drawString(txt, infoX, infoY + 45);
 
-            // przyciski pod zamówieniem
-            g.setColor(Color.GREEN);
-            g.fillRect(acceptButton.x, acceptButton.y, acceptButton.width, acceptButton.height);
-            g.setColor(Color.WHITE);
-            g.drawString("Akceptuj", acceptButton.x + 10, acceptButton.y + 20);
+        // Pasek cierpliwości
+        int barWidth = 140;
+        int barHeight = 12;
+        int filled = (int) ((patience / (float) maxPatience) * barWidth);
 
-            g.setColor(Color.RED);
-            g.fillRect(rejectButton.x, rejectButton.y, rejectButton.width, rejectButton.height);
-            g.setColor(Color.WHITE);
-            g.drawString("Odrzuć", rejectButton.x + 10, rejectButton.y + 20);
-        }
+        g.setColor(Color.DARK_GRAY);
+        g.fillRect(infoX, infoY + 60, barWidth, barHeight);
+
+        float ratio = patience / (float) maxPatience;
+        g.setColor(new Color((int) (255 * (1 - ratio)), (int) (255 * ratio), 0));
+        g.fillRect(infoX, infoY + 60, filled, barHeight);
+
+        g.setColor(Color.BLACK);
+        g.drawRect(infoX, infoY + 60, barWidth, barHeight);
     }
 
-    public boolean contains(int mx, int my) {
-        return mx >= x && mx <= x + width && my >= y && my <= y + height && !processed;
+    // Kompatybilność wsteczna dla starego kodu (zwraca pełny tekst jako 'order')
+    public String getOrder() {
+        return getFullOrderText();
     }
-
-    public boolean isAcceptButton(int mx, int my) {
-        return acceptButton.contains(mx, my) && showOrder && !processed;
-    }
-
-    public boolean isRejectButton(int mx, int my) {
-        return rejectButton.contains(mx, my) && showOrder && !processed;
-    }
-
-    public void showOrder() { showOrder = true; }
-
-    public void acceptOrder() { processed = true; }
-
-    public void rejectOrder() { processed = true; }
-
-    public boolean isProcessed() { return processed; }
-
-    public String getOrder() { return order; }
-
-    public String getName() { return name; }
 }
