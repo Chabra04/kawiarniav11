@@ -15,19 +15,62 @@ public class Level {
 
     private final Random random = new Random();
 
+    private int clientsAlreadyServed = 0;
+
     public Level(int levelNumber, Gameplay gameplay) {
         this.levelNumber = levelNumber;
         this.gameplay = gameplay;
     }
 
-// W klasie Level, metoda randomDrink jest zastępowana logiką w start()
+    public void setAlreadyServed(int count) {
+        this.clientsAlreadyServed = count;
+    }
 
-    // Metoda pomocnicza do tworzenia klienta
-    private Client createRandomClient() {
+    // GETTER DO ZAPISU (Nowość)
+    // Pozwala SaveManagerowi pobrać aktualnych klientów z sali
+    public List<Client> getActiveClients() {
+        return activeClients;
+    }
+
+    // START POZIOMU
+    // Przyjmuje listę wczytanych klientów (może być null, jeśli to nowa gra)
+    public void start(List<Client> loadedClients) {
+        activeClients.clear();
+        waitingClients.clear();
+
+        // 1. Jeśli wczytaliśmy grę i mamy zapisanych klientów -> wrzucamy ich na salę
+        if (loadedClients != null && !loadedClients.isEmpty()) {
+            System.out.println("Wczytano " + loadedClients.size() + " klientów z zapisu.");
+            activeClients.addAll(loadedClients);
+        }
+
+        // 2. Obliczamy ilu klientów jeszcze brakuje do końca poziomu
+        int totalClients = 2 + levelNumber;
+        int currentCount = clientsAlreadyServed + activeClients.size();
+        int remainingToSpawn = totalClients - currentCount;
+
+        if (remainingToSpawn < 0) remainingToSpawn = 0;
+
+        System.out.println("Start poziomu " + levelNumber + ". Do stworzenia w kolejce: " + remainingToSpawn);
+
+        // 3. Generujemy resztę klientów do kolejki (waitingClients)
+        for (int i = 0; i < remainingToSpawn; i++) {
+            waitingClients.add(createRandomClient());
+        }
+
+        // 4. Jeśli na sali jest luz (np. wczytaliśmy tylko 1 klienta), dobieramy z kolejki
+        while (activeClients.size() < MAX_VISIBLE_CLIENTS && !waitingClients.isEmpty()) {
+            activeClients.add(waitingClients.poll());
+        }
+        layoutClients();
+    }
+
+    // TWORZENIE LOSOWEGO KLIENTA
+    public Client createRandomClient() {
         String drink = randomDrinkName();
         KitchenProcess.MilkType milk = null;
 
-        // Jeśli to kawa mleczna, losujemy mleko
+        // Jeśli napój mleczny, losujemy rodzaj mleka
         if (drink.equals("Latte") || drink.equals("Cappuccino")) {
             int r = random.nextInt(100);
             if (r < 60) milk = KitchenProcess.MilkType.COW;        // 60% Krowie
@@ -35,6 +78,7 @@ public class Level {
             else milk = KitchenProcess.MilkType.SOY;              // 15% Sojowe
         }
 
+        // Tworzymy nowego klienta (konstruktor domyślny = pełna cierpliwość)
         return new Client(randomName(), drink, milk, 0, 0);
     }
 
@@ -45,31 +89,14 @@ public class Level {
         return d[random.nextInt(d.length)];
     }
 
-    // W metodzie start() używamy teraz createRandomClient()
-    public void start() {
-        activeClients.clear();
-        waitingClients.clear();
-        int totalClients = 2 + levelNumber;
-
-        for (int i = 0; i < totalClients; i++) {
-            Client c = createRandomClient(); // <--- Zmiana
-            if (activeClients.size() < MAX_VISIBLE_CLIENTS) activeClients.add(c);
-            else waitingClients.add(c);
-        }
-        layoutClients();
-    }
-
-    // =====================================================
     // UPDATE
-    // =====================================================
     public void update() {
-
-        // aktualizacja cierpliwości
+        // 1. Aktualizacja cierpliwości aktywnych klientów
         for (Client c : activeClients) {
             c.update();
         }
 
-        // klienci, którym skończyła się cierpliwość
+        // 2. Usuwanie klientów, którym skończyła się cierpliwość
         activeClients.removeIf(c -> {
             if (c.isOutOfPatience()) {
                 gameplay.addScore(-PATIENCE_PENALTY);
@@ -78,41 +105,35 @@ public class Level {
             return false;
         });
 
-        // uzupełnianie sali
-        while (activeClients.size() < MAX_VISIBLE_CLIENTS
-                && !waitingClients.isEmpty()) {
-
+        // 3. Uzupełnianie sali klientami z kolejki (jeśli są miejsca)
+        while (activeClients.size() < MAX_VISIBLE_CLIENTS && !waitingClients.isEmpty()) {
             activeClients.add(waitingClients.poll());
-            layoutClients();
+            layoutClients(); // Przelicz pozycje
         }
 
-        // === KONIEC POZIOMU ===
+        // 4. Sprawdzenie końca poziomu
         if (activeClients.isEmpty() && waitingClients.isEmpty()) {
-            // ZMIANA: Nie przechodzimy od razu dalej, tylko pokazujemy podsumowanie
             gameplay.levelCompleted();
         }
     }
 
-    // =====================================================
-    // KLIENT OBSŁUŻONY (z kuchni)
-    // =====================================================
+    // OBSŁUGA ZDARZEŃ
+
+    // Wywoływane przez Gameplay, gdy klient został obsłużony w kuchni
     public void clientServed(Client client) {
-        // Punkty są dodawane w Gameplay/Kitchen na podstawie jakości,
-        // tutaj tylko usuwamy klienta z sali.
         activeClients.remove(client);
 
-        // od razu uzupełnij miejsce
+        // Od razu wpuszczamy następnego
         if (!waitingClients.isEmpty()) {
             activeClients.add(waitingClients.poll());
             layoutClients();
         }
     }
 
-    // =====================================================
-    // KLIKNIĘCIE KLIENTA
-    // =====================================================
+    // Kliknięcie w sali (przejście do kuchni)
     public void click(int mx, int my, Gameplay gp) {
         for (Client c : activeClients) {
+            // Jeśli kliknięto klienta i nie jest on jeszcze obsłużony
             if (c.contains(mx, my) && !c.isProcessed()) {
                 gp.goToKitchen(c);
                 return;
@@ -120,14 +141,11 @@ public class Level {
         }
     }
 
-    // =====================================================
     // RENDER
-    // =====================================================
     public void render(Graphics g) {
-
         g.setColor(Color.BLACK);
         g.setFont(new Font("Arial", Font.BOLD, 36));
-        g.drawString("Poziom " + levelNumber, 40, 60);
+        g.drawString("Poziom " + levelNumber, 1000, 60);
 
         g.setFont(new Font("Arial", Font.PLAIN, 24));
         g.drawString("Punkty: " + gameplay.getScore(), 40, 100);
@@ -138,46 +156,19 @@ public class Level {
         }
     }
 
-    // =====================================================
-    // LAYOUT KLIENTÓW
-    // =====================================================
+    // POMOCNICZE
+    // Ustawia klientów jeden pod drugim
     private void layoutClients() {
         int startY = 180;
-        int gap = 170;
+        int gap = 170; // Odstęp pionowy
 
         for (int i = 0; i < activeClients.size(); i++) {
-            activeClients.get(i).setPosition(
-                    480,
-                    startY + i * gap
-            );
+            activeClients.get(i).setPosition(480, startY + i * gap);
         }
     }
 
-    // =====================================================
-    // LOSOWANIA
-    // =====================================================
     private String randomName() {
-        String[] names = {
-                "Anna", "Piotr", "Julia", "Marek",
-                "Ola", "Bartek", "Kasia", "Tomek",
-                "Jan", "Zosia", "Michał", "Ewa"
-        };
+        String[] names = { "Anna", "Piotr", "Julia", "Marek", "Ola", "Bartek", "Kasia", "Tomek", "Jan", "Zosia" };
         return names[random.nextInt(names.length)];
-    }
-
-    private String randomDrink() {
-        if (levelNumber == 1) {
-            return random.nextBoolean() ? "Espresso" : "Latte";
-        }
-
-        // Od poziomu 2 dochodzi więcej opcji
-        String[] d = {
-                "Espresso",
-                "Double Espresso",
-                "Latte",
-                "Cappuccino",
-                "Americano" // <--- ZMIANA: Dodano Americano
-        };
-        return d[random.nextInt(d.length)];
     }
 }
