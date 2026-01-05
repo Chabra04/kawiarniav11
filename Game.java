@@ -4,12 +4,13 @@ import java.awt.event.MouseListener;
 import java.awt.event.MouseMotionListener;
 import java.awt.image.BufferStrategy;
 import javax.swing.JFrame;
-
+import java.util.List;
+import java.util.ArrayList;
 public class Game extends Canvas implements Runnable, MouseListener, MouseMotionListener {
 
     public static int WIDTH = 1280;
     public static int HEIGHT = 720;
-    public static final String TITLE = "Kawiarnia";
+    public static final String TITLE = "Kawiarnia Telekomunikacyjna, Bartłomiej Stachniuk 198205";
 
     public enum State {
         MENU,
@@ -30,8 +31,14 @@ public class Game extends Canvas implements Runnable, MouseListener, MouseMotion
 
     public int currentLevel = 1;
     public int score = 0;
-    public double money = 200.0;
+    public double money = 300.0;
+    public int clientsServedFromSave = 0;
+    public int loadedBeans = 60;
+    public int loadedMilkCow = 600;
+    public int loadedMilkLactose = 600;
+    public int loadedMilkSoy = 600;
 
+    public List<Client> loadedClients = new ArrayList<>();
     public Game() {
         this.setPreferredSize(new Dimension(WIDTH, HEIGHT));
         this.setMaximumSize(new Dimension(WIDTH, HEIGHT));
@@ -112,8 +119,6 @@ public class Game extends Canvas implements Runnable, MouseListener, MouseMotion
         if (gameState == State.GAME || gameState == State.KITCHEN ||
                 gameState == State.OPTIONS || gameState == State.LEVEL_SUMMARY) {
             if (gameplay != null) gameplay.render(g);
-
-            // --- ZMIANA: Przycisk OPCJE widoczny w GRZE i KUCHNI ---
             if (gameState == State.GAME || gameState == State.KITCHEN) {
                 g.setColor(new Color(200, 50, 50));
                 g.fillRect(WIDTH - 80, HEIGHT - 60, 60, 40);
@@ -136,7 +141,7 @@ public class Game extends Canvas implements Runnable, MouseListener, MouseMotion
     public void newGame() {
         this.currentLevel = 1;
         this.score = 0;
-        this.money = 200.0;
+        this.money = 300.0;
         this.gameplay = new Gameplay(this, false);
         gameState = State.GAME;
     }
@@ -161,7 +166,7 @@ public class Game extends Canvas implements Runnable, MouseListener, MouseMotion
             // --- ZMIANA: Obsługa przycisku OPCJE w GRZE i KUCHNI ---
             if (mx > WIDTH - 80 && my > HEIGHT - 60) {
                 gameState = State.OPTIONS;
-                return; // Ważne: żeby nie kliknąć czegoś pod spodem
+                return;
             }
 
             if (gameplay != null) gameplay.mouseClicked(mx, my);
