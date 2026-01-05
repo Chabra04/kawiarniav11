@@ -1,4 +1,8 @@
+import javax.imageio.ImageIO;
 import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.IOException;
 
 public class Gameplay {
 
@@ -6,44 +10,64 @@ public class Gameplay {
     private Level level;
     private final Kitchen kitchen;
 
-    // Zapamiętujemy punkty na starcie poziomu (do restartu)
     private int startScore;
 
-    // Zapamiętujemy pieniądze na starcie poziomu (do restartu)
     private double startMoney;
 
     // ===================== EKONOMIA =====================
-    private double money = 200.0; // Startowa gotówka (PLN)
+    private double money = 300.0;
 
-    // Statystyki bieżącego poziomu (do podsumowania w Menu)
     private double levelIncome = 0;
     private double levelExpenses = 0;
 
-    // Koszty stałe
-    private static final double RENT_COST = 100.0; // Czynsz płatny po każdym poziomie
+    private BufferedImage bgImage;
+    private static final double RENT_COST = 100.0;
+    private int clientsServedCount = 0;
 
     public Gameplay(Game game, boolean continued) {
         this.game = game;
         this.kitchen = new Kitchen(this);
 
-        // Jeśli gra jest kontynuowana, dane (level, score, money) powinny być wczytane w Game.java
-        // Zakładamy, że Game.java przekazało stan do pól publicznych lub wczytujemy tu.
-        // Dla uproszczenia przy kontynuacji używamy tego co jest w game.score i game.money (jeśli dodasz to pole do Game).
-        // Tutaj bazujemy na lokalnym polu 'money', które przy wczytywaniu powinno być zaktualizowane.
-
         this.startScore = game.score;
-        this.startMoney = this.money;
+        this.startMoney = game.money;
+
+        // Przepisujemy aktualną kasę z obiektu Game
+        this.money = game.money;
+
+        try {
+            bgImage = ImageIO.read(new File("resources/tloGry.jpg"));
+        } catch (IOException e) {
+            System.out.println("Nie znaleziono tła gry: resources/tloGry.jpg");
+            bgImage = null;
+        }
 
         this.level = new Level(game.currentLevel, this);
 
-        // Zawsze startujemy level, żeby wygenerować klientów
-        level.start();
+        // LOGIKA WCZYTYWANIA STANU (Kontynuacja gry)
+        if (continued) {
+            // 1. Ustawiamy licznik obsłużonych
+            this.clientsServedCount = game.clientsServedFromSave;
+            level.setAlreadyServed(this.clientsServedCount);
+
+            // 2. Wczytujemy stan surowców w kuchni
+            kitchen.getProcess().loadState(
+                    game.loadedBeans,
+                    game.loadedMilkCow,
+                    game.loadedMilkLactose,
+                    game.loadedMilkSoy
+            );
+
+            System.out.println("Wczytano Gameplay. Klienci z zapisu: " + (game.loadedClients != null ? game.loadedClients.size() : 0));
+        level.start(game.loadedClients);
+
+        } else {
+            this.clientsServedCount = 0;
+
+            level.start(null);
+        }
     }
 
-    // =====================================================
     // ZARZĄDZANIE FINANSAMI
-    // =====================================================
-
     public void earnMoney(double amount) {
         this.money += amount;
         this.levelIncome += amount;
@@ -53,21 +77,21 @@ public class Gameplay {
         this.money -= amount;
         this.levelExpenses += amount;
         System.out.println("Wydatek: -" + amount + " PLN (" + reason + ")");
-
-        // Jeśli spadniemy poniżej zera, gra się nie kończy, ale mamy dług.
     }
 
     public double getMoney() { return money; }
     public double getLevelIncome() { return levelIncome; }
     public double getLevelExpenses() { return levelExpenses; }
 
-    // =====================================================
     // UPDATE
-    // =====================================================
     public void update() {
-        if (Game.gameState == Game.State.GAME) {
+        // Level (klienci) aktualizuje się zawsze (żeby czas leciał)
+        if (Game.gameState == Game.State.GAME || Game.gameState == Game.State.KITCHEN) {
             level.update();
-        } else if (Game.gameState == Game.State.KITCHEN) {
+        }
+
+        // Kuchnia aktualizuje się tylko gdy w niej jesteśmy
+        if (Game.gameState == Game.State.KITCHEN) {
             kitchen.update();
         }
     }
@@ -82,12 +106,14 @@ public class Gameplay {
             return;
         }
 
-        // Rysowanie Sali (Level)
-        g.setColor(new Color(230, 220, 200));
-        g.fillRect(0, 0, Game.WIDTH, Game.HEIGHT);
-        level.render(g);
+        if (bgImage != null) {
+            g.drawImage(bgImage, 0, 0, Game.WIDTH, Game.HEIGHT, null);
+        } else {
+            g.setColor(new Color(230, 220, 200));
+            g.fillRect(0, 0, Game.WIDTH, Game.HEIGHT);
+        }
 
-        // ===== HUD (Interfejs w Sali) =====
+        level.render(g);
 
         // 1. Pieniądze
         g.setColor(new Color(30, 100, 30));
@@ -128,68 +154,109 @@ public class Gameplay {
     // =====================================================
 
     public void goToKitchen(Client client) {
-        kitchen.startOrder(client.getOrderName(), client); // Używamy getOrderName lub getOrder w zależności od wersji Client.java
+        kitchen.startOrder(client.getOrderName(), client);
         Game.gameState = Game.State.KITCHEN;
     }
 
-    // Klient obsłużony - aktualizacja punktów i pieniędzy
+    // Klient obsłużony - aktualizacja punktów, pieniędzy i ZAPIS
     public void clientServed(Client client, int points, double earnings) {
         level.clientServed(client);
         addScore(points);
         earnMoney(earnings);
 
-        // Zapis stanu (dodaj money do SaveManager!)
-        // SaveManager.save(game.currentLevel, game.score, money);
-        SaveManager.save(game.currentLevel, game.score); // Wersja tymczasowa bez money w zapisie
+        clientsServedCount++;
+
+        // Pobieramy stan kuchni
+        KitchenProcess kp = kitchen.getProcess();
+
+        // ZAPISUJEMY STAN GRY WRAZ Z KLIENTAMI!
+        // level.getActiveClients() zwraca listę obecnych klientów z ich paskami cierpliwości
+        SaveManager.save(
+                game.currentLevel,
+                game.score,
+                money,
+                clientsServedCount,
+                kp.getCoffeeBeansLevel(),
+                kp.getMilkLevel(KitchenProcess.MilkType.COW),
+                kp.getMilkLevel(KitchenProcess.MilkType.LACTOSE_FREE),
+                kp.getMilkLevel(KitchenProcess.MilkType.SOY),
+                level.getActiveClients() // <-- Przekazujemy listę klientów
+        );
     }
 
-    // Koniec poziomu (wszyscy obsłużeni)
+    // Koniec poziomu
     public void levelCompleted() {
-        // Naliczamy czynsz
         spendMoney(RENT_COST, "Czynsz za lokal");
 
         Game.gameState = Game.State.LEVEL_SUMMARY;
 
-        // Zapisujemy odblokowany następny poziom
-        // SaveManager.save(game.currentLevel + 1, game.score, money);
-        SaveManager.save(game.currentLevel + 1, game.score);
+        KitchenProcess kp = kitchen.getProcess();
+
+        // Zapisujemy start nowego poziomu.
+        // Lista klientów jest null, bo poziom się skończył.
+        SaveManager.save(
+                game.currentLevel + 1,
+                game.score,
+                money,
+                0,
+                kp.getCoffeeBeansLevel(),
+                kp.getMilkLevel(KitchenProcess.MilkType.COW),
+                kp.getMilkLevel(KitchenProcess.MilkType.LACTOSE_FREE),
+                kp.getMilkLevel(KitchenProcess.MilkType.SOY),
+                null
+        );
     }
 
     // Przejście do następnego poziomu
     public void nextLevel() {
         game.currentLevel++;
 
-        // Resetujemy statystyki dzienne, ale pieniądze zostają
         resetLevelStats();
+        clientsServedCount = 0;
 
-        // Ustawiamy nowe punkty startowe dla ewentualnego restartu
         this.startScore = game.score;
         this.startMoney = this.money;
 
         level = new Level(game.currentLevel, this);
-        level.start();
+        // Nowy poziom -> null (generuj nowych klientów)
+        level.start(null);
 
         Game.gameState = Game.State.GAME;
-        SaveManager.save(game.currentLevel, game.score);
+
+        KitchenProcess kp = kitchen.getProcess();
+        SaveManager.save(
+                game.currentLevel, game.score, money, 0,
+                kp.getCoffeeBeansLevel(),
+                kp.getMilkLevel(KitchenProcess.MilkType.COW),
+                kp.getMilkLevel(KitchenProcess.MilkType.LACTOSE_FREE),
+                kp.getMilkLevel(KitchenProcess.MilkType.SOY),
+                null
+        );
     }
 
-    // Restart poziomu (nie chcemy farmić kasy, więc cofamy stan finansów)
+    // Restart poziomu
     public void restartLevel() {
-        // Przywracamy punkty
         game.score = startScore;
-
-        // Przywracamy pieniądze (cofamy to co zarobiliśmy i wydaliśmy w tej nieudanej próbie)
-        // Opcja 1: Proste przywrócenie stanu z początku
         this.money = this.startMoney;
+        this.clientsServedCount = 0;
 
-        // Resetujemy liczniki statystyk
         resetLevelStats();
 
         level = new Level(game.currentLevel, this);
-        level.start();
+        // Restart -> null (generuj nowych klientów)
+        level.start(null);
 
         Game.gameState = Game.State.GAME;
-        SaveManager.save(game.currentLevel, game.score);
+
+        KitchenProcess kp = kitchen.getProcess();
+        SaveManager.save(
+                game.currentLevel, game.score, money, 0,
+                kp.getCoffeeBeansLevel(),
+                kp.getMilkLevel(KitchenProcess.MilkType.COW),
+                kp.getMilkLevel(KitchenProcess.MilkType.LACTOSE_FREE),
+                kp.getMilkLevel(KitchenProcess.MilkType.SOY),
+                null
+        );
     }
 
     private void resetLevelStats() {
