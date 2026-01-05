@@ -16,9 +16,9 @@ public class KitchenProcess {
     }
 
     public enum GrindResult {
-        UNDER,      // Za krótko (kwaśna)
+        UNDER,      // Za krótko
         PERFECT,    // Idealnie
-        OVER        // Za długo (spalona/gorzka)
+        OVER        // Za długo
     }
 
     public enum BrewType {
@@ -28,14 +28,16 @@ public class KitchenProcess {
         DOUBLE_ESPRESSO,
         AMERICANO,
         LATTE,
+        CAPPUCCINO,
         DIRTY_WATER
     }
 
     public enum MilkState {
-        COLD,       // Zimne
-        WARM,       // Letnie
-        PERFECT,    // Idealne
-        BURNT       // Spalone
+        COLD,
+        WARM,
+        PERFECT,
+        FOAMY,
+        BURNT
     }
 
     public enum MilkType {
@@ -55,13 +57,13 @@ public class KitchenProcess {
     // ===================== ZASOBY (EKONOMIA) =====================
 
     // --- MŁYNEK ---
-    private static final int GRINDER_CAPACITY = 40; // Max 40g ziaren
-    private static final int GRIND_COST = 10;       // Jedno mielenie = 10g
+    private static final int GRINDER_CAPACITY = 60;
+    private static final int GRIND_COST = 10;
     private int coffeeBeansLevel = GRINDER_CAPACITY;
 
     // --- KARTONY MLEKA ---
-    private static final int CARTON_CAPACITY = 600; // Max 600ml
-    private static final int POUR_AMOUNT = 200;     // Jedno nalanie = 200ml
+    private static final int CARTON_CAPACITY = 600;
+    private static final int POUR_AMOUNT = 150;
 
     private int cowMilkLevel = CARTON_CAPACITY;
     private int lactoseMilkLevel = CARTON_CAPACITY;
@@ -70,20 +72,21 @@ public class KitchenProcess {
     // ===================== TIMERY I CZASY =====================
 
     // 1. MIELENIE (Manualne)
-    private static final long TARGET_GRIND_TIME = 3000; // 3 sekundy
+    private static final long TARGET_GRIND_TIME = 3000;
     private long currentGrindTime = 0;
 
     // 2. PARZENIE (Automatyczne)
-    private static final long BREW_TIME = 3000;         // 3 sekundy
+    private static final long BREW_TIME = 3000;
     private long brewStartTime = 0;
 
     // 3. SPIENIANIE (Manualne)
-    private static final long TARGET_FROTH_TIME = 3000; // 3 sekundy
+    private static final long TARGET_FROTH_TIME = 3000;
     private long currentFrothTime = 0;
     private long lastFrothInteraction = 0;
+    private static final long TARGET_LATTE_TIME = 3000;
+    private static final long TARGET_CAPPUCCINO_TIME = 4000;
 
-    // Tolerancja dla idealnego czasu (+/- 500ms)
-    private static final long TOLERANCE = 500;
+    private static final long TOLERANCE = 400;
 
     // ===================== ZAWARTOŚĆ KUBKA (NAPÓJ) =====================
     private int espressoShots = 0;
@@ -115,7 +118,6 @@ public class KitchenProcess {
     private boolean jugInFrother = false;
     private MilkType currentMilkType = null;
     private MilkState milkState = MilkState.COLD;
-
 
     // ===================== GETTERY =====================
     public Step getStep() { return step; }
@@ -156,10 +158,7 @@ public class KitchenProcess {
     public long getCurrentGrindTime() { return currentGrindTime; }
     public long getCurrentFrothTime() { return currentFrothTime; }
 
-
-    // ===================== GŁÓWNA PĘTLA (UPDATE) =====================
     public void update() {
-        // Obsługa automatycznego zakończenia parzenia
         if (step == Step.BREWING) {
             if (System.currentTimeMillis() - brewStartTime >= BREW_TIME) {
                 finishBrewing();
@@ -170,31 +169,24 @@ public class KitchenProcess {
     // ===================== MŁYNEK (MIELENIE CZASOWE) =====================
 
     public boolean canStartGrinding() {
-        // Można mielić jeśli: Kolba w młynku, pusta i są ziarna
         return step == Step.PORTAFILTER_IN_GRINDER
                 && !coffeeInPortafilter
                 && coffeeBeansLevel >= GRIND_COST;
     }
 
-    // Wywoływane co klatkę, gdy gracz trzyma myszkę na młynku
     public void processGrinding() {
         if (step == Step.PORTAFILTER_IN_GRINDER) {
-
-            // Pobieramy ziarna na starcie mielenia
             if (currentGrindTime == 0) {
                 if (coffeeBeansLevel >= GRIND_COST) {
                     coffeeBeansLevel -= GRIND_COST;
                 } else {
-                    return; // Brak ziaren - stop
+                    return;
                 }
             }
-
-            // Symulacja upływu czasu (ok. 16ms przy 60 FPS)
             currentGrindTime += 16;
         }
     }
 
-    // Wywoływane przy puszczeniu myszki
     public void finishGrinding() {
         if (step == Step.PORTAFILTER_IN_GRINDER && currentGrindTime > 0) {
             coffeeInPortafilter = true;
@@ -225,7 +217,6 @@ public class KitchenProcess {
     }
 
     public boolean canTakePortafilterFromGrinder() {
-        // Można wyjąć gdy zmielona LUB gdy tylko włożona (rezygnacja)
         return step == Step.COFFEE_GROUND || step == Step.PORTAFILTER_IN_GRINDER;
     }
 
@@ -249,7 +240,6 @@ public class KitchenProcess {
 
     // ===================== EKSPRES - KOLBA =====================
     public boolean canPutPortafilterInMachine() {
-        // Nie można włożyć kolby z fusami!
         return coffeeInPortafilter && coffeeTamped && !coffeeUsed && !portafilterInMachine;
     }
     public void putPortafilterInMachine() {
@@ -282,12 +272,10 @@ public class KitchenProcess {
     public void finishBrewing() {
         if (step == Step.BREWING) {
             if (portafilterInMachine && coffeeInPortafilter && coffeeTamped) {
-                // Parzenie kawy
                 espressoShots += pendingShots;
                 cupGrindResult = grindResult; // Przekazanie jakości mielenia do kubka
                 coffeeUsed = true; // Zamiana kawy w fusy
             } else {
-                // Gorąca woda
                 hasHotWater = true;
             }
             step = Step.DRINK_READY;
@@ -302,7 +290,6 @@ public class KitchenProcess {
 
     public void pourMilkIntoJug(MilkType type) {
         if (canPourMilkIntoJug(type)) {
-            // Pobranie z kartonu
             switch (type) {
                 case COW -> cowMilkLevel -= POUR_AMOUNT;
                 case LACTOSE_FREE -> lactoseMilkLevel -= POUR_AMOUNT;
@@ -310,7 +297,6 @@ public class KitchenProcess {
             }
             milkInJug = true;
             currentMilkType = type;
-            // Reset stanu dzbanka
             currentFrothTime = 0;
             milkState = MilkState.COLD;
             lastFrothInteraction = 0;
@@ -334,16 +320,27 @@ public class KitchenProcess {
             currentFrothTime += 16;
             lastFrothInteraction = System.currentTimeMillis();
 
-            // Ocena spieniania
-            if (currentFrothTime < TARGET_FROTH_TIME - TOLERANCE) milkState = MilkState.WARM;
-            else if (currentFrothTime <= TARGET_FROTH_TIME + TOLERANCE) milkState = MilkState.PERFECT;
-            else milkState = MilkState.BURNT;
+            // 0 - 2.5s -> Ciepłe
+            if (currentFrothTime < 2500) {
+                milkState = MilkState.WARM;
+            }
+            // 2.5s - 3.5s -> IDEALNE (Latte)
+            else if (currentFrothTime <= 3500) {
+                milkState = MilkState.PERFECT;
+            }
+            // 3.5s - 4.5s -> MOCNA PIANKA (Cappuccino)
+            else if (currentFrothTime <= 4500) {
+                milkState = MilkState.FOAMY;
+            }
+            // > 4.5s -> SPALONE
+            else {
+                milkState = MilkState.BURNT;
+            }
         }
     }
 
     public boolean canPourMilkIntoCup() {
-        // Można wlać tylko idealnie spienione i tylko do kawy (nie do pustego kubka)
-        return milkState == MilkState.PERFECT
+        return (milkState == MilkState.PERFECT || milkState == MilkState.FOAMY)
                 && espressoShots > 0
                 && step == Step.CUP_TAKEN;
     }
@@ -354,7 +351,6 @@ public class KitchenProcess {
             cupMilkState = milkState;
             cupMilkType = currentMilkType;
 
-            // Opróżnij dzbanek
             milkInJug = false;
             currentMilkType = null;
             currentFrothTime = 0;
@@ -366,7 +362,15 @@ public class KitchenProcess {
     // ===================== IDENTYFIKACJA NAPOJU =====================
     public BrewType getCurrentDrink() {
         if (espressoShots == 0 && !hasHotWater && !hasMilk) return BrewType.EMPTY;
-        if (hasMilk) { if (espressoShots > 0) return BrewType.LATTE; return BrewType.DIRTY_WATER; }
+
+        if (hasMilk) {
+            if (espressoShots > 0) {
+                if (cupMilkState == MilkState.FOAMY) return BrewType.CAPPUCCINO;
+                return BrewType.LATTE;
+            }
+            return BrewType.DIRTY_WATER;
+        }
+
         if (hasHotWater) { if (espressoShots > 0) return BrewType.AMERICANO; return BrewType.HOT_WATER; }
         if (espressoShots == 1) return BrewType.ESPRESSO;
         if (espressoShots >= 2) return BrewType.DOUBLE_ESPRESSO;
@@ -395,7 +399,12 @@ public class KitchenProcess {
         espressoShots = 0; hasHotWater = false; hasMilk = false;
         cupGrindResult = null; cupMilkState = null; cupMilkType = null;
         served = false;
-        if (portafilterInMachine) { if (cupInMachine) step = Step.CUP_IN_MACHINE; else step = Step.PORTAFILTER_IN_MACHINE; } else { step = Step.TAKE_PORTAFILTER; }
+        if (portafilterInMachine) {
+            if (cupInMachine) step = Step.CUP_IN_MACHINE;
+            else step = Step.PORTAFILTER_IN_MACHINE;
+        } else {
+            step = Step.TAKE_PORTAFILTER;
+        }
     }
     public boolean isFrothingActive() {
         return System.currentTimeMillis() - lastFrothInteraction < 200;
@@ -407,5 +416,11 @@ public class KitchenProcess {
         milkInJug = false; currentMilkType = null;
         currentFrothTime = 0; milkState = MilkState.COLD; lastFrothInteraction = 0;
         jugInFrother = false;
+    }
+    public void loadState(int beans, int mCow, int mLactose, int mSoy) {
+        this.coffeeBeansLevel = beans;
+        this.cowMilkLevel = mCow;
+        this.lactoseMilkLevel = mLactose;
+        this.soyMilkLevel = mSoy;
     }
 }
